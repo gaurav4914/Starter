@@ -4,10 +4,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 android {
-    namespace = "in.netpulse.app"
+    namespace = "com.netpulse.app"
     compileSdk = 35
     defaultConfig {
-        applicationId = "in.netpulse.app"
+        applicationId = "com.netpulse.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
