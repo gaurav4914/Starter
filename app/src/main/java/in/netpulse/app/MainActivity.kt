@@ -1,4 +1,4 @@
-package in.netpulse.app
+package com.netpulse.app
 
 import android.Manifest
 import android.app.Activity
@@ -8,7 +8,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.app.usage.NetworkStats
 import android.app.usage.NetworkStatsManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -18,7 +17,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.os.Process
-import android.os.TrafficStats
+import android.net.TrafficStats
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -139,16 +138,8 @@ object UsageRepository {
     }
 
     private fun read(manager: NetworkStatsManager, type: Int, start: Long, end: Long): Pair<Long, Long> {
-        val stats: NetworkStats = manager.querySummaryForDevice(type, null, start, end)
-        var rx = 0L; var tx = 0L
-        try {
-            val bucket = NetworkStats.Bucket()
-            while (stats.hasNextBucket()) {
-                stats.getNextBucket(bucket)
-                rx += bucket.rxBytes; tx += bucket.txBytes
-            }
-        } finally { stats.close() }
-        return rx to tx
+        val bucket = manager.querySummaryForDevice(type, null, start, end)
+        return bucket.rxBytes to bucket.txBytes
     }
 
     fun bytes(value: Long): String {
@@ -251,7 +242,7 @@ private fun NetPulseScreen() {
         }
 
         Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF10283A))) {
-            Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF103B48), Color(0xFF142440), Color(0xFF17213B))).padding(19.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF103B48), Color(0xFF142440), Color(0xFF17213B)))).padding(19.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Speed, null, tint = Color(0xFF5EEAD4))
                     Text(" LIVE NETWORK SPEED", Modifier.padding(start = 8.dp), color = Color(0xFFB8C9DB), fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -491,7 +482,7 @@ class MonitorService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        const val ACTION_STOP = "in.netpulse.app.STOP_MONITOR"
+        const val ACTION_STOP = "com.netpulse.app.STOP_MONITOR"
         fun start(context: Context) {
             ContextCompat.startForegroundService(context, Intent(context, MonitorService::class.java))
         }
