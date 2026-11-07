@@ -53,8 +53,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="netpulse-v1.0.0-build-${{ github.run_number }}"
+          APP_VERSION="$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)"
+          TAG="netpulse-v${APP_VERSION}-build-${{ github.run_number }}"
           gh release create "$TAG" app/build/outputs/apk/debug/app-debug.apk \
-            --title "NetPulse v1.0.0 build ${{ github.run_number }}" \
+            --title "NetPulse v${APP_VERSION} build ${{ github.run_number }}" \
             --notes "NetPulse Android test APK. Enable Usage Access in Android Settings for daily data totals." \
             --latest=false

@@ -49,6 +49,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -262,13 +263,15 @@ private fun NetPulseScreen() {
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text(if (monitoring) "● LIVE" else "READY", color = if (monitoring) Color(0xFF5EEAD4) else Color(0xFFFBBF24), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text("v1.1", color = Color(0xFF94A3B8), fontSize = 10.sp)
+                Text("v1.2", color = Color(0xFF94A3B8), fontSize = 10.sp)
             }
         }
 
         ModeSelector(selectedMode = selectedMode, onSelected = { selectedMode = it })
 
-        if (selectedMode == 1) {
+        if (selectedMode == 2) {
+            SpeedTestMode()
+        } else if (selectedMode == 1) {
             LiveSpeedMode(
                 down = down,
                 up = up,
@@ -410,31 +413,251 @@ private fun ModeSelector(selectedMode: Int, onSelected: (Int) -> Unit) {
         Modifier.fillMaxWidth()
             .background(Color(0xFF111B2E), RoundedCornerShape(18.dp))
             .padding(5.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Button(
             onClick = { onSelected(0) },
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(14.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (selectedMode == 0) Color(0xFF0F766E) else Color.Transparent,
                 contentColor = Color.White
             )
         ) {
-            Icon(Icons.Filled.DataUsage, contentDescription = null)
-            Text("  Overview")
+            Icon(Icons.Filled.DataUsage, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(3.dp))
+            Text("Overview", fontSize = 10.sp, maxLines = 1)
         }
         Button(
             onClick = { onSelected(1) },
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(14.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (selectedMode == 1) Color(0xFF0F766E) else Color.Transparent,
                 contentColor = Color.White
             )
         ) {
-            Icon(Icons.Filled.Speed, contentDescription = null)
-            Text("  Live speed")
+            Icon(Icons.Filled.Speed, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(3.dp))
+            Text("Live", fontSize = 10.sp, maxLines = 1)
+        }
+        Button(
+            onClick = { onSelected(2) },
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(14.dp),
+            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (selectedMode == 2) Color(0xFF0F766E) else Color.Transparent,
+                contentColor = Color.White
+            )
+        ) {
+            Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(3.dp))
+            Text("Speed test", fontSize = 10.sp, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun SpeedTestMode() {
+    val scope = rememberCoroutineScope()
+    var testState by remember { mutableStateOf(SpeedTestUiState()) }
+    var result by remember { mutableStateOf<SpeedTestResult?>(null) }
+    var isRunning by remember { mutableStateOf(false) }
+    var activeJob by remember { mutableStateOf<Job?>(null) }
+
+    DisposableEffect(Unit) {
+        onDispose { activeJob?.cancel() }
+    }
+
+    val startTest: () -> Unit = {
+        if (!isRunning) {
+            isRunning = true
+            result = null
+            testState = SpeedTestUiState(
+                stage = "PING",
+                message = "Checking connection latency…",
+                progress = 0.03f
+            )
+            activeJob = scope.launch {
+                try {
+                    val completed = SpeedTestEngine.run { update ->
+                        testState = update
+                    }
+                    result = completed
+                    testState = testState.copy(
+                        stage = "DONE",
+                        message = "Speed test completed",
+                        progress = 1f,
+                        liveMbps = 0.0,
+                        downloadMbps = completed.downloadMbps,
+                        uploadMbps = completed.uploadMbps,
+                        downloadPeakMbps = completed.downloadPeakMbps,
+                        uploadPeakMbps = completed.uploadPeakMbps,
+                        pingMs = completed.pingMs,
+                        jitterMs = completed.jitterMs,
+                        downloadedBytes = completed.downloadedBytes,
+                        uploadedBytes = completed.uploadedBytes
+                    )
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    testState = testState.copy(stage = "CANCELLED", message = "Test cancelled")
+                } catch (error: Exception) {
+                    testState = testState.copy(
+                        stage = "ERROR",
+                        message = error.message ?: "Speed test could not connect to the test server."
+                    )
+                } finally {
+                    isRunning = false
+                    activeJob = null
+                }
+            }
+        }
+    }
+
+    val shownPing = result?.pingMs ?: testState.pingMs
+    val shownJitter = result?.jitterMs ?: testState.jitterMs
+    val shownDownload = result?.downloadMbps ?: testState.downloadMbps
+    val shownUpload = result?.uploadMbps ?: testState.uploadMbps
+
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(26.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF10283A))
+        ) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .background(Brush.linearGradient(listOf(Color(0xFF103B48), Color(0xFF142440), Color(0xFF17213B))))
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Bolt, contentDescription = null, tint = Color(0xFF5EEAD4))
+                    Text("  INTERNET SPEED TEST", color = Color(0xFFB8C9DB), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        if (isRunning) "TESTING" else if (result != null) "DONE" else "READY",
+                        color = if (isRunning || result != null) Color(0xFF5EEAD4) else Color(0xFFFBBF24),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    if (testState.stage == "UPLOAD") "LIVE UPLOAD SPEED" else "LIVE DOWNLOAD SPEED",
+                    color = Color(0xFF9FB3C8),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    if (isRunning) String.format(Locale.getDefault(), "%.2f Mbps", testState.liveMbps)
+                    else if (result != null) String.format(Locale.getDefault(), "%.2f Mbps", result!!.downloadMbps)
+                    else "—",
+                    color = Color(0xFF5EEAD4),
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+                Text(testState.message, color = Color(0xFFCBD5E1), fontSize = 12.sp, lineHeight = 17.sp)
+                LinearProgressIndicator(
+                    progress = testState.progress.coerceIn(0f, 1f),
+                    modifier = Modifier.fillMaxWidth().height(7.dp),
+                    color = Color(0xFF2DD4BF),
+                    trackColor = Color(0xFF26364D)
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(testState.stage, color = Color(0xFF99F6E4), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text((testState.progress * 100).toInt().toString() + "%", color = Color(0xFF9FB3C8), fontSize = 10.sp)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (isRunning) {
+                        OutlinedButton(
+                            onClick = { activeJob?.cancel() },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Cancel test") }
+                    } else {
+                        Button(
+                            onClick = startTest,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
+                        ) { Text(if (result == null) "Start speed test" else "Test again") }
+                    }
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SpeedTestMetric("PING", shownPing?.let { String.format(Locale.getDefault(), "%.0f ms", it) } ?: "—", "HTTP round-trip", Modifier.weight(1f))
+            SpeedTestMetric("JITTER", shownJitter?.let { String.format(Locale.getDefault(), "%.1f ms", it) } ?: "—", "Ping variation", Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            SpeedTestMetric("DOWNLOAD", shownDownload?.let { String.format(Locale.getDefault(), "%.2f Mbps", it) } ?: "—", "Measured receive rate", Modifier.weight(1f))
+            SpeedTestMetric("UPLOAD", shownUpload?.let { String.format(Locale.getDefault(), "%.2f Mbps", it) } ?: "—", "Measured send rate", Modifier.weight(1f))
+        }
+        if (result != null) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF111B2E))
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("PEAK SPEED", color = Color(0xFF99F6E4), fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Max download", color = Color(0xFF9FB3C8), fontSize = 11.sp)
+                            Text(String.format(Locale.getDefault(), "%.2f Mbps", result!!.downloadPeakMbps), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Column(Modifier.weight(1f)) {
+                            Text("Max upload", color = Color(0xFF9FB3C8), fontSize = 11.sp)
+                            Text(String.format(Locale.getDefault(), "%.2f Mbps", result!!.uploadPeakMbps), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Text(
+                        "Transferred: " + UsageRepository.bytes(result!!.downloadedBytes) + " down • " + UsageRepository.bytes(result!!.uploadedBytes) + " up",
+                        color = Color(0xFF64748B),
+                        fontSize = 10.sp
+                    )
+                }
+            }
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF111B2E))
+        ) {
+            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                Text("TEST SERVER", color = Color(0xFF99F6E4), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("Cloudflare global edge network (automatic routing)", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                Text(
+                    "यह वास्तविक HTTPS download और upload करके speed मापता है। टेस्ट लगभग 82 MB तक डेटा इस्तेमाल कर सकता है। मोबाइल डेटा पर शुरू करने से पहले ध्यान दें।",
+                    color = Color(0xFF9FB3C8),
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp
+                )
+                Text(
+                    "Ping HTTP request का round-trip समय है, ICMP ping नहीं। Server, route, VPN और network load के कारण परिणाम बदल सकते हैं।",
+                    color = Color(0xFF64748B),
+                    fontSize = 10.sp,
+                    lineHeight = 15.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpeedTestMetric(title: String, value: String, caption: String, modifier: Modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF111B2E)),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, color = Color(0xFF9FB3C8), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text(value, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Text(caption, color = Color(0xFF64748B), fontSize = 9.sp)
         }
     }
 }
