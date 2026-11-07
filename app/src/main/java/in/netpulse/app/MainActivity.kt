@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -167,6 +168,15 @@ object UsageRepository {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15 enforces edge-to-edge for targetSdk 35. Keep the app content
+        // inside system bars using Compose insets, while matching the dark header.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.rgb(8, 14, 28)
+        window.navigationBarColor = android.graphics.Color.rgb(8, 14, 28)
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Color(0xFF5EEAD4), secondary = Color(0xFF93C5FD),
@@ -192,6 +202,10 @@ private fun NetPulseScreen() {
     var oldTx by remember { mutableStateOf(TrafficStats.getTotalTxBytes()) }
     var oldAt by remember { mutableStateOf(System.currentTimeMillis()) }
     var confirmReset by remember { mutableStateOf(false) }
+    var selectedMode by remember { mutableStateOf(0) }
+    var peakDown by remember { mutableStateOf(0L) }
+    var peakUp by remember { mutableStateOf(0L) }
+    var speedSamples by remember { mutableStateOf(List(24) { 0L }) }
 
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted && UsageRepository.hasUsageAccess(context)) MonitorService.start(context)
@@ -216,6 +230,9 @@ private fun NetPulseScreen() {
             down = if (rx >= oldRx) (rx - oldRx) * 1000L / elapsed else 0L
             up = if (tx >= oldTx) (tx - oldTx) * 1000L / elapsed else 0L
             oldRx = rx; oldTx = tx; oldAt = now
+            peakDown = maxOf(peakDown, down)
+            peakUp = maxOf(peakUp, up)
+            speedSamples = speedSamples.drop(1) + maxOf(down, up)
             usage = UsageRepository.load(context, now)
             monitoring = prefs.getBoolean(KEY_RUNNING, false)
             if (now - lastHistory > 60_000L) {
@@ -227,7 +244,11 @@ private fun NetPulseScreen() {
     }
 
     Column(
-        Modifier.fillMaxSize().background(Color(0xFF080E1C)).verticalScroll(rememberScrollState()).padding(18.dp),
+        Modifier.fillMaxSize()
+            .background(Color(0xFF080E1C))
+            .windowInsetsPadding(WindowInsets.systemBars)
+            .verticalScroll(rememberScrollState())
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -236,11 +257,31 @@ private fun NetPulseScreen() {
             }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text("NETPULSE", color = Color(0xFF99F6E4), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-                Text("Network command center", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("Internet speed & data monitor", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Live network insights", color = Color(0xFF9FB3C8), fontSize = 11.sp)
             }
-            Text("v1.0", color = Color(0xFF94A3B8), fontSize = 11.sp)
+            Column(horizontalAlignment = Alignment.End) {
+                Text(if (monitoring) "● LIVE" else "READY", color = if (monitoring) Color(0xFF5EEAD4) else Color(0xFFFBBF24), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("v1.1", color = Color(0xFF94A3B8), fontSize = 10.sp)
+            }
         }
 
+        ModeSelector(selectedMode = selectedMode, onSelected = { selectedMode = it })
+
+        if (selectedMode == 1) {
+            LiveSpeedMode(
+                down = down,
+                up = up,
+                peakDown = peakDown,
+                peakUp = peakUp,
+                samples = speedSamples,
+                monitoring = monitoring,
+                onStart = { startMonitoring() },
+                onStop = {
+                    activity.startService(Intent(context, MonitorService::class.java).setAction(MonitorService.ACTION_STOP))
+                }
+            )
+        } else {
         Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF10283A))) {
             Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF103B48), Color(0xFF142440), Color(0xFF17213B)))).padding(19.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -338,6 +379,7 @@ private fun NetPulseScreen() {
             }
         }
 
+        }
         Text(
             "डेटा Android के Network Usage records से आता है; carrier billing से अंतर हो सकता है। Live speed पूरे डिवाइस के traffic का अनुमान है।",
             color = Color(0xFF64748B), fontSize = 10.sp, lineHeight = 15.sp
@@ -359,6 +401,190 @@ private fun NetPulseScreen() {
             },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("रद्द करें") } }
         )
+    }
+}
+
+@Composable
+private fun ModeSelector(selectedMode: Int, onSelected: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth()
+            .background(Color(0xFF111B2E), RoundedCornerShape(18.dp))
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Button(
+            onClick = { onSelected(0) },
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (selectedMode == 0) Color(0xFF0F766E) else Color.Transparent,
+                contentColor = Color.White
+            )
+        ) {
+            Icon(Icons.Filled.DataUsage, contentDescription = null)
+            Text("  Overview")
+        }
+        Button(
+            onClick = { onSelected(1) },
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (selectedMode == 1) Color(0xFF0F766E) else Color.Transparent,
+                contentColor = Color.White
+            )
+        ) {
+            Icon(Icons.Filled.Speed, contentDescription = null)
+            Text("  Live speed")
+        }
+    }
+}
+
+@Composable
+private fun LiveSpeedMode(
+    down: Long,
+    up: Long,
+    peakDown: Long,
+    peakUp: Long,
+    samples: List<Long>,
+    monitoring: Boolean,
+    onStart: () -> Unit,
+    onStop: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(26.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF10283A))
+        ) {
+            Column(
+                Modifier.fillMaxWidth()
+                    .background(Brush.linearGradient(listOf(Color(0xFF103B48), Color(0xFF142440), Color(0xFF17213B))))
+                    .padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Speed, contentDescription = null, tint = Color(0xFF5EEAD4))
+                    Text("  REAL-TIME INTERNET SPEED", color = Color(0xFFB8C9DB), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        if (monitoring) "● LIVE" else "● LOCAL",
+                        color = if (monitoring) Color(0xFF5EEAD4) else Color(0xFFFBBF24),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text("Your connection, right now", color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SpeedBigTile(
+                        title = "DOWNLOAD",
+                        value = UsageRepository.speed(down),
+                        direction = "↓ Receiving",
+                        modifier = Modifier.weight(1f),
+                        accent = Color(0xFF5EEAD4)
+                    )
+                    SpeedBigTile(
+                        title = "UPLOAD",
+                        value = UsageRepository.speed(up),
+                        direction = "↑ Sending",
+                        modifier = Modifier.weight(1f),
+                        accent = Color(0xFF93C5FD)
+                    )
+                }
+                Text(
+                    "Live values refresh every second. Includes device-wide Wi-Fi and mobile traffic.",
+                    color = Color(0xFF9FB3C8),
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF111B2E))
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("SESSION PEAK SPEED", color = Color(0xFF99F6E4), fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Peak download", color = Color(0xFF9FB3C8), fontSize = 11.sp)
+                        Text(UsageRepository.speed(peakDown), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text("Peak upload", color = Color(0xFF9FB3C8), fontSize = 11.sp)
+                        Text(UsageRepository.speed(peakUp), color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                Text("Peaks are measured since this screen was opened.", color = Color(0xFF64748B), fontSize = 10.sp)
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF111B2E))
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("LIVE TRAFFIC ACTIVITY", color = Color(0xFF99F6E4), fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(74.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    val maximum = (samples.maxOrNull() ?: 1L).coerceAtLeast(1L)
+                    samples.forEach { sample ->
+                        val fraction = (sample.toFloat() / maximum).coerceIn(0f, 1f)
+                        Box(
+                            Modifier.weight(1f)
+                                .height((6f + 60f * fraction).dp)
+                                .background(Color(0xFF2DD4BF), RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
+                        )
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("24 seconds", color = Color(0xFF64748B), fontSize = 10.sp)
+                    Text("Most recent", color = Color(0xFF64748B), fontSize = 10.sp)
+                }
+            }
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onStart,
+                enabled = !monitoring,
+                modifier = Modifier.weight(1f)
+            ) { Text("Start notification") }
+            OutlinedButton(
+                onClick = onStop,
+                enabled = monitoring,
+                modifier = Modifier.weight(1f)
+            ) { Text("Stop monitor") }
+        }
+        Text(
+            "यह स्पीड फोन के कुल network traffic का अनुमान है। Background apps और VPN traffic भी इसमें शामिल हो सकते हैं; यह carrier-certified speed test नहीं है।",
+            color = Color(0xFF64748B),
+            fontSize = 10.sp,
+            lineHeight = 15.sp
+        )
+    }
+}
+
+@Composable
+private fun SpeedBigTile(
+    title: String,
+    value: String,
+    direction: String,
+    modifier: Modifier,
+    accent: Color
+) {
+    Column(
+        modifier.background(Color(0x332D6674), RoundedCornerShape(18.dp)).padding(13.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(title, color = Color(0xFF9FB3C8), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = accent, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        Text(direction, color = Color(0xFFB8C9DB), fontSize = 10.sp)
     }
 }
 
