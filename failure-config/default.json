@@ -1,8 +1,0 @@
-{
-  "authentication": "normal",
-  "legacyService": "success",
-  "caseManagement": "success",
-  "geminiProvider": "success",
-  "billingService": "success",
-  "diagnosticsService": "success"
-}

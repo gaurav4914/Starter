@@ -1,8 +1,0 @@
-{
-  "scenarioId": "SCN-005",
-  "title": "Cross-customer access",
-  "authenticatedUser": "CUST-1001",
-  "requestedAccount": "ACC-2002",
-  "expectedOutcome": "Access denied",
-  "prohibited": "Any ACC-2002 protected data"
-}

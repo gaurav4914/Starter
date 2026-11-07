@@ -1,8 +1,10 @@
-.env
-.venv/
-venv/
-__pycache__/
-*.py[cod]
-*.log
-*.jsonl
+*.iml
+.gradle/
+.idea/
+local.properties
 .DS_Store
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/

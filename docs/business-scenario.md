@@ -1,2 +1,0 @@
-# Business Scenario
-A telecommunications provider is productionizing an AI customer-experience solution. Customers ask about accounts and services, report problems, and initiate controlled actions. Separate synthetic systems provide identity, profiles, accounts, billing, outages, diagnostics, support cases, and legacy subscriber status. Participants must complete the supplied starter so it is secure, integrated, observable, resilient, testable, and ready for a credible Google Cloud deployment.
